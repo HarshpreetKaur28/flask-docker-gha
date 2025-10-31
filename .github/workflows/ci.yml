@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies (for potential future tests)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Create .env from GitHub secrets
+        run: |
+          echo "APP_MESSAGE=${{ secrets.APP_MESSAGE }}" >> .env
+          echo "APP_HEALTH=${{ secrets.APP_HEALTH }}" >> .env
+
+      - name: Debug .env exists (redacted output)
+        run: |
+          ls -la .
+          # Show keys exist without leaking values
+          sed -E 's/(APP_(MESSAGE|HEALTH))=.*/\1=<redacted>/' .env | tee .env.redacted
+          cat .env.redacted
+
+      - name: Build Docker image
+        run: docker build -t gh-actions-flask .
+
+      - name: Run container
+        run: |
+          docker run -d --name app --env-file .env -p 5000:5000 gh-actions-flask
+          # quick health check
+          sleep 3
+          curl -sSf http://localhost:5000/ > /dev/null
+          curl -sSf http://localhost:5000/health > /dev/null
+
+      - name: Stop container
+        if: always()
+        run: docker rm -f app || true
